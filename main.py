@@ -5,58 +5,69 @@ import os
 import csv
 from urllib.parse import quote_plus
 from concurrent.futures import ThreadPoolExecutor
+from adb_handler import ADB
+import time
 
+adb = ADB()
 
 class Scraper:
-    def __init__(self, driver):
-        self.driver = driver
+    
+    def __init__(self):
+        self.driver = Driver(uc=True)
 
-    def read_file(self, filename: str):
-        if not os.path.exists(filename):
-            print("Error: Input File not Found | Exiting")
-            return None
-        df = pd.read_csv(filename)
-        return df.fillna("")
 
     def file_creator(self, company: str, designation: str, location: str, links: list[str]):
         with open('data.csv', 'a', newline='') as f:
-            writer = csv.writer(f)
-            for link in links:
-                writer.writerow([company, designation, location, link])
-
+            writer = csv.writer(f , quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([f"{company} {designation} {location}", str(links)])
+            
     def open_google(self, row):
         company = row["Company"]
         designation = row['Designation']
         location = row["Location"]
-        search_query = f'site:linkedin.com/in {company} {designation} {location}'
+        search_query = f'site:linkedin.com {company} {designation} {location}'
         encoded_query = quote_plus(search_query)
 
         print(f'Scraping Data For: {company} | {designation} | {location}')
 
-        self.driver.get(f'https://www.google.com/search?q={encoded_query}')
-
         try:
-            captcha = self.driver.find_elements(By.ID, "captcha-form")
-        except Exception:
-            pass
+            self.driver.get(f'https://www.google.com/search?q={encoded_query}') 
+        except Exception as e:
+            print(f"Error Occured while opening google")
+            return
 
-        if captcha is not None:
-            print(f"Google Captcha Found | Changing Ip")
+        current_url = self.driver.current_url
 
+        if current_url.startswith("https://www.google.com/sorry/index?continue"):
+            captcha = True
+        else:
+            captcha = False
+
+        if captcha:
+            print('Captcha Found | Changing IP')
+            self.driver.quit()
+            adb.toggle_internet()
+            self.driver = Driver(uc=True, headless=True)
+            
         try:
             search_results = self.driver.find_elements(By.CSS_SELECTOR, "a")
         except Exception:
             print(f'Error occurred while opening Google:')
             return
 
-        links = [result.get_attribute("href") for result in search_results if result.get_attribute(
-            "href") and result.get_attribute("href").startswith('https://in.linkedin.com/')]
+        links = []
+        
+        for result in search_results:
+            try:
+                href = result.get_attribute("href")
+                if href and href.startswith("https://in.linkedin.com/"):
+                    links.append(href)
+            except Exception as e:
+                print(f"Links not found in the page")
+            
+
         self.file_creator(company, designation, location, links[:5])
 
-
-def run_scraper(row, driver):
-    scraper = Scraper(driver)
-    scraper.open_google(row)
 
 
 if __name__ == "__main__":
@@ -66,17 +77,8 @@ if __name__ == "__main__":
     else:
         df = pd.read_csv(filename).fillna("")
 
-        drivers = [Driver(uc=True) for _ in range(3)]
+        scraper = Scraper()
 
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = []
-            for idx, row in enumerate(df.iterrows()):
+        for idx, row in enumerate(df.iterrows()):
                 _, row_data = row
-                driver = drivers[idx % 3]
-                futures.append(executor.submit(run_scraper, row_data, driver))
-
-            for future in futures:
-                future.result()
-
-        for driver in drivers:
-            driver.quit()
+                scraper.open_google(row_data)
