@@ -27,12 +27,27 @@ class ADB:
         else:
             return False
         
+    def check_connection(self ,retries=10, delay=1):
+        for _ in range(retries):
+            result = subprocess.run(['adb', 'shell', 'ping', '-c', '1', 'google.com'], capture_output=True, text=True)
+            output = result.stdout.strip()
+            if "1 packets transmitted, 1 received" in output or "bytes from" in output:
+                return True 
+            time.sleep(delay) 
+        return False 
+
+        
     def toggle_internet(self):
         os.system("adb shell svc data disable")
         print('Turning off internet to change IP')
         time.sleep(.5)
         os.system('adb shell svc data enable')
-        print(f'Internet IP Changed Successfully')
-        time.sleep(1)
+        if self.check_connection():
+            print(f'Internet IP Changed Successfully')
+        else:
+            ('No Internet in Mobile')
+
+
+        
 
 
